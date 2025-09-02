@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+  <meta charset="UTF-8">
+  <title>Etikete Generator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    table { border-collapse: collapse; margin-top: 20px; }
+    td, th { border: 1px solid #ccc; padding: 5px; min-width: 80px; text-align: center; cursor: pointer; }
+    td.selected { background-color: #add8e6; }
+    #etikete { margin-top: 20px; }
+    .etiketa { border: 1px dashed #666; padding: 10px; margin: 5px; display: inline-block; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>Etikete Generator</h1>
+  <input type="file" id="inputExcel" accept=".xlsx, .xls" />
+  <button onclick="clearFile()">Odstrani datoteko</button>
+  <div id="excelData"></div>
+
+  <h2>Izbrane etikete</h2>
+  <div id="etikete"></div>
+  <button onclick="generatePDF()">Prenesi PDF</button>
+
+  <script>
+    let selectedCells = [];
+
+    document.getElementById('inputExcel').addEventListener('change', handleFile, false);
+
+    function handleFile(e) {
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, {type: 'array'});
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const html = XLSX.utils.sheet_to_html(sheet, { header: "" });
+        document.getElementById('excelData').innerHTML = html;
+        makeCellsSelectable();
+      };
+      reader.readAsArrayBuffer(e.target.files[0]);
+    }
+
+    function clearFile() {
+      document.getElementById('inputExcel').value = "";
+      document.getElementById('excelData').innerHTML = "";
+      document.getElementById('etikete').innerHTML = "";
+      selectedCells = [];
+    }
+
+    function makeCellsSelectable() {
+      const cells = document.querySelectorAll('#excelData td');
+      cells.forEach(cell => {
+        cell.addEventListener('click', () => {
+          const text = cell.innerText.trim();
+          if (!text) return;
+          const ponovitve = prompt("Koliko ponovitev za to etiketo?", "1");
+          if (ponovitve !== null) {
+            selectedCells.push({ vsebina: text, ponovitve: parseInt(ponovitve) || 1 });
+            renderEtikete();
+          }
+        });
+      });
+    }
+
+    function renderEtikete() {
+      const container = document.getElementById('etikete');
+      container.innerHTML = "";
+      selectedCells.forEach(et => {
+        const div = document.createElement('div');
+        div.className = 'etiketa';
+        div.textContent = `${et.vsebina} (x${et.ponovitve})`;
+        container.appendChild(div);
+      });
+    }
+
+    function generatePDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+
+      // Nastavitve etikete
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const labelWidth = 60;   // širina etikete v mm
+      const labelHeight = 30;  // višina etikete v mm
+      const margin = 10;       // rob strani
+
+      let x = margin;
+      let y = margin;
+
+      selectedCells.forEach(et => {
+        for (let i = 0; i < et.ponovitve; i++) {
+          // okvir etikete
+          doc.rect(x, y, labelWidth, labelHeight);
+
+          // prilagodimo velikost pisave
+          let fontSize = 14;
+          const maxWidth = labelWidth - 4;
+          doc.setFont("helvetica", "normal");
+          doc.setFontSize(fontSize);
+
+          while (doc.getTextWidth(et.vsebina) > maxWidth && fontSize > 8) {
+            fontSize--;
+            doc.setFontSize(fontSize);
+          }
+
+          const textLines = doc.splitTextToSize(et.vsebina, maxWidth);
+          const lineHeight = fontSize * 0.35 + 4;
+          const textY = y + labelHeight / 2 - (textLines.length * lineHeight) / 2 + fontSize/2;
+
+          textLines.forEach((line, index) => {
+            doc.text(line, x + 2, textY + index * lineHeight);
+          });
+
+          // premik na naslednji stolpec
+          x += labelWidth;
+          if (x + labelWidth > pageWidth - margin) {
+            x = margin;
+            y += labelHeight;
+          }
+
+          // nova stran
+          if (y + labelHeight > pageHeight - margin) {
+            doc.addPage();
+            x = margin;
+            y = margin;
+          }
+        }
+      });
+
+      doc.save("etikete.pdf");
+    }
+  </script>
+</body>
+</html>
